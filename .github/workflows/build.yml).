@@ -1,0 +1,679 @@
+name: Build My Custom Vivo Control Center APK
+
+on: [push, workflow_dispatch]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Assemble Custom Vivo Project
+        run: |
+          mkdir -p app/src/main/java/com/vivo/funtouch/shortcutcenter
+          mkdir -p app/src/main/res/layout
+          mkdir -p app/src/main/res/drawable
+          mkdir -p app/src/main/res/values
+
+          # 1. settings.gradle
+          cat << 'EOF' > settings.gradle
+          pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+          dependencyResolutionManagement { repositories { google(); mavenCentral() } }
+          rootProject.name = "VivoShortcutCenter"
+          include ':app'
+          EOF
+
+          # 2. build.gradle
+          cat << 'EOF' > build.gradle
+          plugins {
+              id 'com.android.application' version '8.1.1' apply false
+              id 'org.jetbrains.kotlin.android' version '1.8.20' apply false
+          }
+          EOF
+
+          # 3. app/build.gradle
+          cat << 'EOF' > app/build.gradle
+          plugins {
+              id 'com.android.application'
+              id 'org.jetbrains.kotlin.android'
+          }
+          android {
+              namespace 'com.vivo.funtouch.shortcutcenter'
+              compileSdk 33
+              defaultConfig {
+                  applicationId "com.myvivo.s1pro.shortcutcenter"
+                  minSdk 26
+                  targetSdk 33
+                  versionCode 1
+                  versionName "1.0_Custom"
+              }
+          }
+          dependencies {
+              implementation 'androidx.core:core-ktx:1.9.0'
+              implementation 'androidx.appcompat:appcompat:1.6.1'
+              implementation 'com.google.android.material:material:1.8.0'
+              implementation 'androidx.recyclerview:recyclerview:1.3.0'
+          }
+          EOF
+
+          # 4. styles.xml
+          cat << 'EOF' > app/src/main/res/values/styles.xml
+          <resources>
+              <style name="Theme.VivoFuntouch" parent="Theme.AppCompat.NoActionBar">
+                  <item name="android:windowBackground">@android:color/transparent</item>
+                  <item name="android:colorBackgroundCacheHint">@null</item>
+                  <item name="android:windowIsTranslucent">true</item>
+              </style>
+          </resources>
+          EOF
+
+          # 5. Drawables
+          cat << 'EOF' > app/src/main/res/drawable/bg_panel_blur.xml
+          <shape xmlns:android="http://schemas.android.com/apk/res/android">
+              <solid android:color="#E615171E" />
+              <corners android:topLeftRadius="24dp" android:topRightRadius="24dp" />
+          </shape>
+          EOF
+
+          cat << 'EOF' > app/src/main/res/drawable/bg_service_card.xml
+          <shape xmlns:android="http://schemas.android.com/apk/res/android">
+              <solid android:color="#26323D4D" />
+              <corners android:radius="14dp" />
+          </shape>
+          EOF
+
+          cat << 'EOF' > app/src/main/res/drawable/bg_circle_toggle_inactive.xml
+          <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+              <solid android:color="#403C4454" />
+          </shape>
+          EOF
+
+          cat << 'EOF' > app/src/main/res/drawable/bg_circle_toggle_active.xml
+          <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+              <solid android:color="#FFFFFFFF" />
+          </shape>
+          EOF
+
+          # 6. AndroidManifest.xml
+          cat << 'EOF' > app/src/main/AndroidManifest.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+              <uses-permission android:name="android.permission.WRITE_SETTINGS" />
+              <uses-permission android:name="android.permission.CAMERA" />
+              <uses-permission android:name="android.permission.VIBRATE" />
+              <uses-feature android:name="android.hardware.camera.flash" android:required="false" />
+              <application
+                  android:label="Shortcut Center"
+                  android:theme="@style/Theme.VivoFuntouch">
+                  <activity android:name=".MainActivity" android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+                  <activity android:name=".CustomTilesActivity" android:exported="false" />
+                  <service android:name=".VivoOverlayService" android:enabled="true" android:exported="false" />
+              </application>
+          </manifest>
+          EOF
+
+          # 7. Tile Model & Registry (All 28 Vivo tiles)
+          cat << 'EOF' > app/src/main/java/com/vivo/funtouch/shortcutcenter/ShortcutTile.kt
+          package com.vivo.funtouch.shortcutcenter
+
+          data class ShortcutTile(
+              val id: String,
+              val title: String,
+              val icon: String,
+              var isActive: Boolean = false,
+              var isDisplayed: Boolean = true
+          )
+
+          object TileRegistry {
+              fun getDefaultTiles(): ArrayList<ShortcutTile> {
+                  return arrayListOf(
+                      ShortcutTile("eye", "Eye\nProtection", "👁", isDisplayed = true),
+                      ShortcutTile("dark", "Dark Mode", "☼", isDisplayed = true),
+                      ShortcutTile("wifi", "Wi-Fi", "📶", isActive = true, isDisplayed = true),
+                      ShortcutTile("scapture", "S-capture", "⛶", isDisplayed = true),
+                      ShortcutTile("vibrate", "Vibration\nMode", "📳", isDisplayed = true),
+                      ShortcutTile("data", "Data\nnetwork", "⇅", isDisplayed = true),
+                      ShortcutTile("speed", "Speed up", "🚀", isDisplayed = true),
+                      ShortcutTile("bluetooth", "Bluetooth", "ᛒ", isDisplayed = true),
+                      ShortcutTile("location", "Location", "📍", isDisplayed = true),
+                      ShortcutTile("sim", "Switch SIM\ncard", "1️⃣", isDisplayed = true),
+                      ShortcutTile("torch", "Flashlight", "🔦", isDisplayed = true),
+                      ShortcutTile("easytouch", "Easy Touch", "◎", isDisplayed = true),
+                      ShortcutTile("calc", "Calculator", "🧮", isDisplayed = true),
+                      ShortcutTile("game", "Ultra Game\nMode", "🎮", isDisplayed = true),
+                      ShortcutTile("hotspot", "Personal\nhotspot", "📡", isDisplayed = true),
+                      ShortcutTile("silent", "Silent mode", "🔔", isDisplayed = true),
+                      ShortcutTile("screenrec", "Record\nScreen", "📹", isDisplayed = true),
+                      ShortcutTile("rotation", "Portrait\norientation", "🔄", isDisplayed = true),
+                      ShortcutTile("airplane", "Airplane\nmode", "✈", isDisplayed = true),
+                      ShortcutTile("splitscreen", "Split-screen", "◫", isDisplayed = true),
+                      ShortcutTile("device_ctrl", "Device\ncontrols", "🏠", isDisplayed = false),
+                      ShortcutTile("dnd", "Do Not\nDisturb", "🌙", isDisplayed = false),
+                      ShortcutTile("low_power", "Low power\nmode", "🔋", isDisplayed = false),
+                      ShortcutTile("super_battery", "Super Battery\nSaver", "⚡", isDisplayed = false),
+                      ShortcutTile("camera", "Camera", "📷", isDisplayed = false),
+                      ShortcutTile("power", "Power off", "⏻", isDisplayed = false),
+                      ShortcutTile("mirroring", "Smart\nMirroring", "🖥", isDisplayed = false),
+                      ShortcutTile("jovi", "Jovi Vision", "👁‍🗨", isDisplayed = false),
+                      ShortcutTile("vivoshare", "vivoshare", "∞", isDisplayed = false),
+                      ShortcutTile("nearby", "Nearby\nShare", "⇋", isDisplayed = false)
+                  )
+              }
+          }
+          EOF
+
+          # 8. Vivo Vertical Slider
+          cat << 'EOF' > app/src/main/java/com/vivo/funtouch/shortcutcenter/VivoVerticalSlider.kt
+          package com.vivo.funtouch.shortcutcenter
+          import android.content.Context
+          import android.graphics.*
+          import android.util.AttributeSet
+          import android.view.MotionEvent
+          import android.view.View
+
+          class VivoVerticalSlider @JvmOverloads constructor(
+              context: Context, attrs: AttributeSet? = null, defStyle: Int = 0
+          ) : View(context, attrs, defStyle) {
+              var progress: Float = 0.5f
+                  set(value) { field = value.coerceIn(0f, 1f); invalidate() }
+              var onProgressChanged: ((Float) -> Unit)? = null
+              var iconText: String = "☀"
+              private val trackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#403C4454") }
+              private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
+              private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                  color = Color.BLACK; textSize = 38f; textAlign = Paint.Align.CENTER
+              }
+              override fun onDraw(canvas: Canvas) {
+                  super.onDraw(canvas)
+                  val r = width / 2f
+                  canvas.drawRoundRect(RectF(0f, 0f, width.toFloat(), height.toFloat()), r, r, trackPaint)
+                  val fillTop = height * (1f - progress)
+                  canvas.drawRoundRect(RectF(0f, fillTop, width.toFloat(), height.toFloat()), r, r, fillPaint)
+                  canvas.drawText(iconText, width / 2f, height - 30f, textPaint)
+              }
+              override fun onTouchEvent(event: MotionEvent): Boolean {
+                  when (event.action) {
+                      MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
+                          progress = 1f - (event.y.coerceIn(0f, height.toFloat()) / height)
+                          onProgressChanged?.invoke(progress)
+                          return true
+                      }
+                  }
+                  return super.onTouchEvent(event)
+              }
+          }
+          EOF
+
+          # 9. Single Tile Layout & Adapter
+          cat << 'EOF' > app/src/main/res/layout/item_vivo_tile.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:layout_width="wrap_content"
+              android:layout_height="wrap_content"
+              android:orientation="vertical"
+              android:gravity="center"
+              android:layout_margin="3dp">
+              <FrameLayout
+                  android:id="@+id/tileBackground"
+                  android:layout_width="52dp"
+                  android:layout_height="52dp"
+                  android:background="@drawable/bg_circle_toggle_inactive">
+                  <TextView
+                      android:id="@+id/tileIcon"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:layout_gravity="center"
+                      android:text="📶"
+                      android:textSize="20sp"
+                      android:textColor="#FFFFFF" />
+              </FrameLayout>
+              <TextView
+                  android:id="@+id/tileLabel"
+                  android:layout_width="62dp"
+                  android:layout_height="26dp"
+                  android:layout_marginTop="2dp"
+                  android:gravity="center"
+                  android:text="Wi-Fi"
+                  android:textColor="#D9FFFFFF"
+                  android:textSize="8.5sp"
+                  android:maxLines="2" />
+          </LinearLayout>
+          EOF
+
+          cat << 'EOF' > app/src/main/java/com/vivo/funtouch/shortcutcenter/TileAdapter.kt
+          package com.vivo.funtouch.shortcutcenter
+          import android.graphics.Color
+          import android.view.*
+          import android.widget.FrameLayout
+          import android.widget.TextView
+          import androidx.recyclerview.widget.RecyclerView
+
+          class TileAdapter(
+              val tiles: MutableList<ShortcutTile>,
+              private val onTileClick: (ShortcutTile, Int) -> Unit
+          ) : RecyclerView.Adapter<TileAdapter.ViewHolder>() {
+              inner class ViewHolder(v: View) : RecyclerView.ViewHolder(v) {
+                  val bg: FrameLayout = v.findViewById(R.id.tileBackground)
+                  val icon: TextView = v.findViewById(R.id.tileIcon)
+                  val label: TextView = v.findViewById(R.id.tileLabel)
+              }
+              override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
+                  val v = LayoutInflater.from(parent.context).inflate(R.layout.item_vivo_tile, parent, false)
+                  return ViewHolder(v)
+              }
+              override fun onBindViewHolder(holder: ViewHolder, position: Int) {
+                  val tile = tiles[position]
+                  holder.label.text = tile.title
+                  holder.icon.text = tile.icon
+                  if (tile.isActive) {
+                      holder.bg.setBackgroundResource(R.drawable.bg_circle_toggle_active)
+                      holder.icon.setTextColor(Color.BLACK)
+                  } else {
+                      holder.bg.setBackgroundResource(R.drawable.bg_circle_toggle_inactive)
+                      holder.icon.setTextColor(Color.WHITE)
+                  }
+                  holder.itemView.setOnClickListener { onTileClick(tile, position) }
+              }
+              override fun getItemCount(): Int = tiles.size
+          }
+          EOF
+
+          # 10. Main Panel Layout
+          cat << 'EOF' > app/src/main/res/layout/layout_vivo_shortcut_center.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:id="@+id/panelOverlayRoot"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:background="#4D000000">
+              <LinearLayout
+                  android:id="@+id/panelContainer"
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:layout_gravity="bottom"
+                  android:background="@drawable/bg_panel_blur"
+                  android:orientation="vertical"
+                  android:padding="16dp">
+                  <RelativeLayout
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:layout_marginBottom="10dp">
+                      <TextView
+                          android:id="@+id/btnClose"
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:text="✕   Shortcut Center"
+                          android:textColor="#FFFFFF"
+                          android:textSize="17sp"
+                          android:textStyle="bold" />
+                      <LinearLayout
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:layout_alignParentEnd="true"
+                          android:orientation="horizontal">
+                          <TextView android:text="🔍 " android:textSize="18sp" android:textColor="#FFFFFF" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+                          <TextView android:id="@+id/btnCustomTiles" android:text=" ＋ " android:textSize="20sp" android:textColor="#FF3B30" android:textStyle="bold" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+                          <TextView android:text=" ⋮" android:textSize="18sp" android:textColor="#FFFFFF" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+                      </LinearLayout>
+                  </RelativeLayout>
+                  <GridLayout
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:columnCount="2"
+                      android:rowCount="4">
+                      <TextView android:text=" 🗑  Junk Clean" android:layout_width="0dp" android:layout_columnWeight="1" android:layout_height="42dp" android:layout_margin="3dp" android:gravity="center_vertical" android:paddingStart="10dp" android:background="@drawable/bg_service_card" android:textColor="#FFFFFF" android:textSize="11.5sp" />
+                      <TextView android:text=" 📷  Scan QR" android:layout_width="0dp" android:layout_columnWeight="1" android:layout_height="42dp" android:layout_margin="3dp" android:gravity="center_vertical" android:paddingStart="10dp" android:background="@drawable/bg_service_card" android:textColor="#FFFFFF" android:textSize="11.5sp" />
+                      <TextView android:text=" 🔗  App Share" android:layout_width="0dp" android:layout_columnWeight="1" android:layout_height="42dp" android:layout_margin="3dp" android:gravity="center_vertical" android:paddingStart="10dp" android:background="@drawable/bg_service_card" android:textColor="#FFFFFF" android:textSize="11.5sp" />
+                      <TextView android:text=" 🧮  Calculator" android:layout_width="0dp" android:layout_columnWeight="1" android:layout_height="42dp" android:layout_margin="3dp" android:gravity="center_vertical" android:paddingStart="10dp" android:background="@drawable/bg_service_card" android:textColor="#FFFFFF" android:textSize="11.5sp" />
+                      <TextView android:text=" 🎵  Sound Search" android:layout_width="0dp" android:layout_columnWeight="1" android:layout_height="42dp" android:layout_margin="3dp" android:gravity="center_vertical" android:paddingStart="10dp" android:background="@drawable/bg_service_card" android:textColor="#FFFFFF" android:textSize="11.5sp" />
+                      <TextView android:text=" 🚕  Ride Hailing" android:layout_width="0dp" android:layout_columnWeight="1" android:layout_height="42dp" android:layout_margin="3dp" android:gravity="center_vertical" android:paddingStart="10dp" android:background="@drawable/bg_service_card" android:textColor="#FFFFFF" android:textSize="11.5sp" />
+                      <TextView android:text=" 💳  Quick Pay" android:layout_width="0dp" android:layout_columnWeight="1" android:layout_height="42dp" android:layout_margin="3dp" android:gravity="center_vertical" android:paddingStart="10dp" android:background="@drawable/bg_service_card" android:textColor="#FFFFFF" android:textSize="11.5sp" />
+                      <TextView android:text=" ⏱  Timer" android:layout_width="0dp" android:layout_columnWeight="1" android:layout_height="42dp" android:layout_margin="3dp" android:gravity="center_vertical" android:paddingStart="10dp" android:background="@drawable/bg_service_card" android:textColor="#FFFFFF" android:textSize="11.5sp" />
+                  </GridLayout>
+                  <TextView
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:gravity="center"
+                      android:text="∨"
+                      android:textColor="#66FFFFFF"
+                      android:textSize="18sp"
+                      android:layout_marginTop="2dp"
+                      android:layout_marginBottom="2dp" />
+                  <LinearLayout
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:orientation="horizontal"
+                      android:weightSum="4"
+                      android:layout_marginBottom="12dp">
+                      <TextView android:text="⛅\nWeather" android:gravity="center" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:textColor="#B3FFFFFF" android:textSize="11sp" />
+                      <TextView android:text="🖌\nThemes" android:gravity="center" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:textColor="#B3FFFFFF" android:textSize="11sp" />
+                      <TextView android:text="🖼\nAlbums" android:gravity="center" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:textColor="#B3FFFFFF" android:textSize="11sp" />
+                      <TextView android:text="⚙\nSettings" android:gravity="center" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:textColor="#B3FFFFFF" android:textSize="11sp" />
+                  </LinearLayout>
+                  <LinearLayout
+                      android:layout_width="match_parent"
+                      android:layout_height="240dp"
+                      android:orientation="horizontal">
+                      <androidx.recyclerview.widget.RecyclerView
+                          android:id="@+id/rvActiveTiles"
+                          android:layout_width="0dp"
+                          android:layout_height="match_parent"
+                          android:layout_weight="3"
+                          android:overScrollMode="never" />
+                      <LinearLayout
+                          android:layout_width="0dp"
+                          android:layout_weight="1.4"
+                          android:layout_height="match_parent"
+                          android:orientation="horizontal"
+                          android:gravity="center">
+                          <com.vivo.funtouch.shortcutcenter.VivoVerticalSlider
+                              android:id="@+id/sliderBrightness"
+                              android:layout_width="44dp"
+                              android:layout_height="210dp"
+                              android:layout_marginEnd="6dp" />
+                          <com.vivo.funtouch.shortcutcenter.VivoVerticalSlider
+                              android:id="@+id/sliderVolume"
+                              android:layout_width="44dp"
+                              android:layout_height="210dp"
+                              android:layout_marginStart="6dp" />
+                      </LinearLayout>
+                  </LinearLayout>
+              </LinearLayout>
+          </FrameLayout>
+          EOF
+
+          # 11. Custom Tiles Screen Layout & Activity
+          cat << 'EOF' > app/src/main/res/layout/activity_custom.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:background="#161822"
+              android:orientation="vertical"
+              android:padding="16dp">
+              <RelativeLayout
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:layout_marginTop="20dp"
+                  android:layout_marginBottom="16dp">
+                  <TextView
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:layout_centerInParent="true"
+                      android:text="Custom"
+                      android:textColor="#FFFFFF"
+                      android:textSize="18sp"
+                      android:textStyle="bold" />
+                  <TextView
+                      android:id="@+id/btnDone"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:layout_alignParentEnd="true"
+                      android:text="Done"
+                      android:textColor="#FFFFFF"
+                      android:textSize="16sp" />
+              </RelativeLayout>
+              <TextView
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:gravity="center"
+                  android:text="Tap any tile to move it between Active and Available."
+                  android:textColor="#80FFFFFF"
+                  android:textSize="12sp"
+                  android:layout_marginBottom="16dp" />
+              <LinearLayout
+                  android:layout_width="match_parent"
+                  android:layout_height="match_parent"
+                  android:orientation="horizontal">
+                  <androidx.recyclerview.widget.RecyclerView
+                      android:id="@+id/rvCustomActive"
+                      android:layout_width="0dp"
+                      android:layout_weight="3"
+                      android:layout_height="match_parent" />
+                  <LinearLayout
+                      android:layout_width="0dp"
+                      android:layout_weight="2"
+                      android:layout_height="match_parent"
+                      android:background="@drawable/bg_service_card"
+                      android:orientation="vertical"
+                      android:padding="6dp">
+                      <androidx.recyclerview.widget.RecyclerView
+                          android:id="@+id/rvCustomAvailable"
+                          android:layout_width="match_parent"
+                          android:layout_height="match_parent" />
+                  </LinearLayout>
+              </LinearLayout>
+          </LinearLayout>
+          EOF
+
+          cat << 'EOF' > app/src/main/java/com/vivo/funtouch/shortcutcenter/CustomTilesActivity.kt
+          package com.vivo.funtouch.shortcutcenter
+          import android.os.Bundle
+          import android.widget.TextView
+          import androidx.appcompat.app.AppCompatActivity
+          import androidx.recyclerview.widget.GridLayoutManager
+          import androidx.recyclerview.widget.RecyclerView
+
+          class CustomTilesActivity : AppCompatActivity() {
+              companion object {
+                  var allTiles: ArrayList<ShortcutTile> = TileRegistry.getDefaultTiles()
+              }
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  setContentView(R.layout.activity_custom)
+                  val rvActive = findViewById<RecyclerView>(R.id.rvCustomActive)
+                  val rvAvailable = findViewById<RecyclerView>(R.id.rvCustomAvailable)
+                  val activeList = allTiles.filter { it.isDisplayed }.toMutableList()
+                  val availableList = allTiles.filter { !it.isDisplayed }.toMutableList()
+
+                  val activeAdapter = TileAdapter(activeList) { tile, pos ->
+                      tile.isDisplayed = false
+                      activeList.removeAt(pos)
+                      availableList.add(tile)
+                      rvActive.adapter?.notifyDataSetChanged()
+                      rvAvailable.adapter?.notifyDataSetChanged()
+                  }
+                  val availableAdapter = TileAdapter(availableList) { tile, pos ->
+                      tile.isDisplayed = true
+                      availableList.removeAt(pos)
+                      activeList.add(tile)
+                      activeAdapter.notifyDataSetChanged()
+                      rvAvailable.adapter?.notifyDataSetChanged()
+                  }
+                  rvActive.layoutManager = GridLayoutManager(this, 3)
+                  rvActive.adapter = activeAdapter
+                  rvAvailable.layoutManager = GridLayoutManager(this, 2)
+                  rvAvailable.adapter = availableAdapter
+                  findViewById<TextView>(R.id.btnDone).setOnClickListener { finish() }
+              }
+          }
+          EOF
+
+          # 12. Overlay Service & Main Activity
+          cat << 'EOF' > app/src/main/java/com/vivo/funtouch/shortcutcenter/VivoOverlayService.kt
+          package com.vivo.funtouch.shortcutcenter
+          import android.annotation.SuppressLint
+          import android.app.Service
+          import android.content.Context
+          import android.content.Intent
+          import android.graphics.PixelFormat
+          import android.hardware.camera2.CameraManager
+          import android.media.AudioManager
+          import android.os.IBinder
+          import android.provider.Settings
+          import android.view.*
+          import android.widget.TextView
+          import androidx.recyclerview.widget.GridLayoutManager
+          import androidx.recyclerview.widget.RecyclerView
+
+          class VivoOverlayService : Service() {
+              private lateinit var wm: WindowManager
+              private lateinit var triggerView: View
+              private lateinit var panelView: View
+              private var isPanelOpen = false
+              private var isTorchOn = false
+
+              override fun onBind(intent: Intent?): IBinder? = null
+              override fun onCreate() {
+                  super.onCreate()
+                  wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+                  setupBottomTrigger()
+                  setupVivoPanel()
+              }
+              @SuppressLint("ClickableViewAccessibility")
+              private fun setupBottomTrigger() {
+                  val params = WindowManager.LayoutParams(
+                      WindowManager.LayoutParams.MATCH_PARENT, 36,
+                      WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                      WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                      PixelFormat.TRANSLUCENT
+                  ).apply { gravity = Gravity.BOTTOM }
+                  triggerView = View(this)
+                  var startY = 0f
+                  triggerView.setOnTouchListener { _, event ->
+                      when (event.action) {
+                          MotionEvent.ACTION_DOWN -> { startY = event.rawY; true }
+                          MotionEvent.ACTION_MOVE -> {
+                              if (startY - event.rawY > 40 && !isPanelOpen) showPanel()
+                              true
+                          }
+                          else -> false
+                      }
+                  }
+                  wm.addView(triggerView, params)
+              }
+              private fun setupVivoPanel() {
+                  panelView = LayoutInflater.from(this).inflate(R.layout.layout_vivo_shortcut_center, null)
+                  val brightness = panelView.findViewById<VivoVerticalSlider>(R.id.sliderBrightness)
+                  val volume = panelView.findViewById<VivoVerticalSlider>(R.id.sliderVolume)
+                  val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                  val rvTiles = panelView.findViewById<RecyclerView>(R.id.rvActiveTiles)
+                  brightness.iconText = "☀"
+                  volume.iconText = "🔊"
+                  volume.onProgressChanged = { pct ->
+                      val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                      audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, (pct * max).toInt(), 0)
+                  }
+                  brightness.onProgressChanged = { pct ->
+                      if (Settings.System.canWrite(this)) {
+                          Settings.System.putInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS, (pct * 255).toInt())
+                      }
+                  }
+                  val activeTiles = CustomTilesActivity.allTiles.filter { it.isDisplayed }.toMutableList()
+                  val adapter = TileAdapter(activeTiles) { tile, pos ->
+                      when (tile.id) {
+                          "torch" -> {
+                              try {
+                                  val cm = getSystemService(Context.CAMERA_SERVICE) as CameraManager
+                                  isTorchOn = !isTorchOn
+                                  cm.setTorchMode(cm.cameraIdList[0], isTorchOn)
+                              } catch (e: Exception) {}
+                          }
+                          "wifi" -> startActivity(Intent(Settings.ACTION_WIFI_SETTINGS).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) })
+                          "bluetooth" -> startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) })
+                          "location" -> startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) })
+                      }
+                      tile.isActive = !tile.isActive
+                      rvTiles.adapter?.notifyItemChanged(pos)
+                  }
+                  rvTiles.layoutManager = GridLayoutManager(this, 3)
+                  rvTiles.adapter = adapter
+
+                  panelView.findViewById<TextView>(R.id.btnCustomTiles).setOnClickListener {
+                      hidePanel()
+                      startActivity(Intent(this, CustomTilesActivity::class.java).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) })
+                  }
+                  panelView.findViewById<View>(R.id.btnClose).setOnClickListener { hidePanel() }
+                  panelView.findViewById<View>(R.id.panelOverlayRoot).setOnClickListener { hidePanel() }
+              }
+              private fun showPanel() {
+                  if (isPanelOpen) return
+                  setupVivoPanel()
+                  val params = WindowManager.LayoutParams(
+                      WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
+                      WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                      WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                      PixelFormat.TRANSLUCENT
+                  )
+                  wm.addView(panelView, params)
+                  isPanelOpen = true
+              }
+              private fun hidePanel() {
+                  if (!isPanelOpen) return
+                  wm.removeView(panelView)
+                  isPanelOpen = false
+              }
+              override fun onDestroy() {
+                  super.onDestroy()
+                  if (::triggerView.isInitialized) wm.removeView(triggerView)
+                  if (isPanelOpen) wm.removeView(panelView)
+              }
+          }
+          EOF
+
+          cat << 'EOF' > app/src/main/java/com/vivo/funtouch/shortcutcenter/MainActivity.kt
+          package com.vivo.funtouch.shortcutcenter
+          import android.content.Intent
+          import android.net.Uri
+          import android.os.Bundle
+          import android.provider.Settings
+          import android.widget.Button
+          import android.widget.LinearLayout
+          import android.widget.Toast
+          import androidx.appcompat.app.AppCompatActivity
+
+          class MainActivity : AppCompatActivity() {
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  val layout = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                      setPadding(50, 80, 50, 50)
+                  }
+                  val btn1 = Button(this).apply {
+                      text = "1. Enable Floating Overlay"
+                      setOnClickListener { startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))) }
+                  }
+                  val btn2 = Button(this).apply {
+                      text = "2. Enable Brightness Permission"
+                      setOnClickListener { startActivity(Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:$packageName"))) }
+                  }
+                  val btn3 = Button(this).apply {
+                      text = "3. Launch Vivo Shortcut Center"
+                      setOnClickListener {
+                          if (Settings.canDrawOverlays(this@MainActivity)) {
+                              startService(Intent(this@MainActivity, VivoOverlayService::class.java))
+                              Toast.makeText(this@MainActivity, "Shortcut Center active! Swipe up from bottom edge", Toast.LENGTH_LONG).show()
+                          } else {
+                              Toast.makeText(this@MainActivity, "Grant permission 1 first", Toast.LENGTH_SHORT).show()
+                          }
+                      }
+                  }
+                  layout.addView(btn1); layout.addView(btn2); layout.addView(btn3)
+                  setContentView(layout)
+              }
+          }
+          EOF
+
+          gradle wrapper --gradle-version 8.2
+
+      - name: Build My Custom APK
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: Export APK File
+        uses: actions/upload-artifact@v4
+        with:
+          name: My-Vivo-S1-Pro-ControlCenter
+          path: app/build/outputs/apk/debug/*.apk
